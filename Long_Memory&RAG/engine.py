@@ -1,6 +1,6 @@
 import json
 import traceback
-import inspect # 新增 - 用于检查工具是同步还是异步
+import inspect # 用于检查工具是同步还是异步
 import asyncio
 from langfuse import observe
 from config import client, Config, logger
@@ -9,6 +9,7 @@ from database import db
 from utils import count_tokens, generate_title, generate_fact_sheet
 from tools import SKILL_REGISTRY
 from router import route_intent  # 引入路由网关
+from memory_manager import long_term_memory
 
 
 class ReActAgent:
@@ -115,6 +116,13 @@ class ReActAgent:
                 # 调用 LLM 生成新的 Summary 事实清单
                 new_fact_sheet = await generate_fact_sheet(old_content, new_msgs)
                 
+                # --- 核心改造，沉淀长期记忆 ---
+                # 把生成的事实清单，开一个后台线程扔给 Mem0 向量库
+                # 这样即使关闭了程序，甚至换了一个 session_id，这些知识也能永久保存。
+                asyncio.create_task(
+                    asyncio.to_thread(long_term_memory.save_facts, new_fact_sheet)
+                )
+
                 # 找到当前消息表中最后一条消息的 ID
                 # 简单处理：取 messages 表中该 session 的最大 ID
                 cursor = db.conn.cursor()
@@ -164,9 +172,27 @@ class ReActAgent:
             # 更新对话标题
             self.session_title = new_title
 
-        # 将当前用户输入存入数据库并加入当前上下文
-        self._save_and_append("user", content=user_query)
+         # --- 核心改造，RAG 长期记忆检索增强 ---
+        yield "\n\033[36m[🧠 记忆神经] 正在潜意识中检索相关记忆...\033[0m"
+        # 根据用户的提问，去向量库里搜相关的记忆
+        retrieved_memories = await asyncio.to_thread(long_term_memory.retrieve, user_query)
+        
+        # 组装最终喂给大模型的 User Prompt（隐式上下文注入）
+        if retrieved_memories:
+            yield f"\n\033[36m[💡 记忆唤醒] 找到相关过往背景！\033[0m"
+            enhanced_query = (
+                f"【系统附加的长期记忆（供参考，仅在相关时使用）】:\n"
+                f"{retrieved_memories}\n\n"
+                f"【用户当前的新输入】:\n{user_query}"
+            )
+        else:
+            enhanced_query = user_query
 
+        # 注意：这里我们存入 SQLite 数据库的依然是干净的 user_query
+        # 存入 self.messages 发给大模型的，是带着长期记忆的 enhanced_query
+        db.save_message(self.session_id, "user", content=user_query, tokens=0)
+        # 不用 self._save_and_append("user", content=user_query) 是因为这个函数append了原信息
+        self.messages.append({"role": "user", "content": enhanced_query})
         
         # --- 调用 Router 网关 ---
         yield "正在分析任务意图，装载技能包..."
