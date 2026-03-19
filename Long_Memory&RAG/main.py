@@ -56,7 +56,8 @@ async def main():
         try:
             # 对话框显示当前 Session ID
             # --- 让终端的 input() 运行在独立线程，不阻塞 Async 事件循环 ---
-            user_input = await asyncio.to_thread(input, f"\n[{agent.session_title}] >>> ").strip()
+            user_input = await asyncio.to_thread(input, f"\n[{agent.session_title}] >>> ")
+            user_input = user_input.strip()
 
             if not user_input:
                 continue

@@ -9,6 +9,7 @@ __pycache__/
 
 # 数据库文件
 *.db
+**/memory_db/
 
 # 其他
 simple_agent.py
