@@ -133,5 +133,18 @@ class ChatDatabase:
                        (session_id, content, last_msg_id))
         self.conn.commit()
 
+
+    # 展示历史对话记录
+    def get_full_chat_history(self, session_id):
+        """专门供 UI 展示使用：获取指定 session 的完整纯净聊天记录"""
+        cursor = self.conn.cursor()
+        # 只提取用户和助手的发言，且内容不能为空
+        cursor.execute('''
+            SELECT role, content FROM messages 
+            WHERE session_id = ? AND role IN ('user', 'assistant') AND content IS NOT NULL
+            ORDER BY id ASC
+        ''', (session_id,))
+        return cursor.fetchall()
+    
 # 初始化全局数据库实例
 db = ChatDatabase()

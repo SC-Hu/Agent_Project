@@ -71,7 +71,7 @@ async def main():
 
                 elif cmd == "/exit":
                     print("正在整理记忆并退出...")
-                    await agent._check_and_summarize() # 退出前进行一次 Summary 检查
+                    await agent.sync_memories(force=True) # 强制沉淀长期记忆
                     print("再见！")
                     break
 
@@ -94,7 +94,8 @@ async def main():
                     selected_id = handle_resume()
                     if selected_id:
                         agent = ReActAgent(selected_id)
-                        print(f"已切换至会话: {selected_id}")
+                        agent.show_chat_history() # 新增，给用户展示前情提要
+                        print(f"已切换至会话: {agent.session_title}")
                     continue
 
                 else:
@@ -103,13 +104,10 @@ async def main():
 
             # --- 处理普通对话 (保留原有 exit 逻辑) ---
             if user_input.lower() in ['exit', 'quit']:
-                await agent._check_and_summarize()
+                print("正在整理记忆并退出...")
+                await agent.sync_memories(force=True) # 强制沉淀长期记忆
                 print("👋 再见！")
                 break
-
-            if not user_input.strip():
-                print("输入不能为空，请重新输入。")
-                continue
 
             # --- 核心驱动，流式输出 ---
             print("\n🤖 Assistant: ", end="")
@@ -119,7 +117,6 @@ async def main():
                 if chunk:
                     # flush=True 保证内容立刻被推送到终端显示
                     print(chunk, end="", flush=True)
-
             print() # 本轮回答完全结束后，换行
             
         except Exception as e:
