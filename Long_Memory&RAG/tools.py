@@ -8,7 +8,7 @@ from config import tavily
 
 # --- 技能包元数据（描述各领域的作用，专门喂给 Router 看的） ---
 CATEGORY_METADATA = {
-    "office": "涉及读取/写入本地文件、代码文档、收发邮件、办公自动化操作。",
+    "office": "涉及读取/生成/写入本地文件(如 txt, md, word, doc 等)、代码文档、收发邮件、办公自动化操作。",
     "gamedev": "涉及游戏开发、引擎崩溃报错日志分析、剧情对话树生成、游戏数值平衡。"
     # base 技能（搜索和提交）是底层被动技能，不需要让 Router 知道，直接默认加载
 }
@@ -126,6 +126,8 @@ async def read_local_file(file_path: str) -> str:
 async def write_local_file(file_name: str, content: str, agent_context=None) -> str:
     """
     将内容写入或覆盖到本地文件中。如果文件不存在会自动创建。
+    【重要指令】：如果用户要求生成 Word 文档，请将内容排版好（如使用 Markdown），
+    并强制将 file_name 的后缀名命名为 .md 或 .doc 返回。
     """
     try:
         # 上下文穿透作用：大模型只传了 file_name 和 content

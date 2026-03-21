@@ -34,28 +34,30 @@ async def route_intent(user_query: str) -> list:
                 {"role": "user", "content": user_query}
             ],
             # --- 核心优化，开启严格的 JSON Schema 物理级约束 ---
-            response_format={"type": "json_schema",
-                "json_schema": {
-                    "name": "SkillRouterResponse",
-                    "strict": True,  # 开启严格模式，拒绝任何额外字段
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "active_skills": {
-                                "type": "array",
-                                "description": "根据用户意图需要激活的技能包列表",
-                                "items": {
-                                    "type": "string",
-                                    # 强行限制数组里的元素只能是注册过的 valid_skills！
-                                    "enum": valid_skills 
-                                }
-                            }
-                        },
-                        "required":["active_skills"], # 声明该字段必须存在
-                        "additionalProperties": False  # 绝对禁止模型自己发明其他的 Key
-                    }
-                }
-            },
+            # --- 很多模型不支持以下模式！ ---
+            # response_format={"type": "json_schema",
+            #     "json_schema": {
+            #         "name": "SkillRouterResponse",
+            #         "strict": True,  # 开启严格模式，拒绝任何额外字段
+            #         "schema": {
+            #             "type": "object",
+            #             "properties": {
+            #                 "active_skills": {
+            #                     "type": "array",
+            #                     "description": "根据用户意图需要激活的技能包列表",
+            #                     "items": {
+            #                         "type": "string",
+            #                         # 强行限制数组里的元素只能是注册过的 valid_skills！
+            #                         "enum": valid_skills 
+            #                     }
+            #                 }
+            #             },
+            #             "required":["active_skills"], # 声明该字段必须存在
+            #             "additionalProperties": False  # 绝对禁止模型自己发明其他的 Key
+            #         }
+            #     }
+            # },
+            response_format={"type": "json_object"},
             temperature=0  # 分类任务必须是 0 逻辑，拒绝任何发散
         )
 

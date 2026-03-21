@@ -18,13 +18,13 @@ logger = logging.getLogger("AgentEngine")
 
 
 class Config:
-    API_KEY = os.getenv("OPENAI_API_KEY")
-    BASE_URL = os.getenv("OPENAI_BASE_URL") 
-    MODEL = os.getenv("MODEL_NAME")
+    API_KEY = os.getenv("CHAT_API_KEY")
+    BASE_URL = os.getenv("CHAT_BASE_URL") 
+    MODEL = os.getenv("CHAT_MODEL_NAME")
     DB_PATH = "agent_memory.db"  
     TOKEN_SOFT_LIMIT = 10000      
     TOKEN_ENCODING = "cl100k_base"
-    SUMMARY_MODEL = os.getenv("MODEL_NAME") 
+    SUMMARY_MODEL = os.getenv("CHAT_MODEL_NAME") 
 
 
     @classmethod

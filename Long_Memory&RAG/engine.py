@@ -73,7 +73,8 @@ class ReActAgent:
     def _save_and_append(self, role, content=None, tool_calls=None, tool_call_id=None):
         """统一管理，存入数据库并加入当前内存上下文"""
         msg = {"role": role}
-        if content: msg["content"] = content
+        # 防止空字符串被丢弃，引发 API 格式错误
+        if content is not None: msg["content"] = content
         if tool_calls: msg["tool_calls"] = tool_calls
         if tool_call_id: msg["tool_call_id"] = tool_call_id
         
@@ -100,41 +101,32 @@ class ReActAgent:
 
         # 获取尚未被处理的新对话记录
         old_summary_data = db.get_summary(self.session_id)
-        old_content = old_summary_data[0] if old_summary_data else ""
-        last_id = old_summary_data[1] if old_summary_data else 0
-        new_msgs = db.get_messages_after(self.session_id, last_id)
+        new_msgs = db.get_messages_after(self.session_id, old_summary_data[1] if old_summary_data else 0)
 
         if not new_msgs:
             return
 
-        # --- 核心 1：沉淀长期记忆 (Mem0) ---
-        logger.info("[系统] 正在将增量知识沉淀到潜意识记忆区 (ChromaDB)...")
-        # 将新对话转化为原生文本流
-        messages_str = "\n".join([f"{m['role']}: {m.get('content', '')}" for m in new_msgs])
-        # 后台异步扔给 Mem0 处理，Mem0 会自动去重、更新和提取关键画像
-        await asyncio.to_thread(long_term_memory.save_facts, messages_str)
-
-        # --- 核心 2：压缩短期上下文 (SQLite) ---
-        logger.info("[系统] 正在压缩会话上下文防爆内存...")
-        new_fact_sheet = await generate_fact_sheet(old_content, new_msgs)
-        
-        # 记录本次压缩到了哪一条消息
-        cursor = db.conn.cursor()
-        cursor.execute("SELECT MAX(id) FROM messages WHERE session_id = ?", (self.session_id,))
-        max_id = cursor.fetchone()[0]
-        
-        db.update_summary(self.session_id, new_fact_sheet, max_id)
-        
-        # 重载内存上下文，释放 Token 空间
-        self.messages = self._load_context()
-        self.current_total_tokens = count_tokens(self.messages)
-        logger.info("[系统] 记忆同步与压缩完毕！")
+        if new_msgs:
+            # --- 存入 SQLite 摘要表 (保持连贯性) ---
+            new_fact_sheet = await generate_fact_sheet(old_summary_data[0] if old_summary_data else "", new_msgs)
+            max_id = db.save_message(self.session_id, "system", content="摘要同步") # 临时占位获取 ID 或直接用 SQL max
+            db.update_summary(self.session_id, new_fact_sheet, max_id)
+            
+            # --- 存入 ChromaDB (沉淀为跨会话的长期记忆) ---
+            messages_str = "\n".join([f"{m['role']}: {m.get('content', '')}" for m in new_msgs])
+            long_term_memory.save_facts(messages_str) # 自动完成向量化与存储
+            
+            self.messages = self._load_context()
+            self.current_total_tokens = count_tokens(self.messages)
 
 
     @observe(as_type="generation") # 追踪反思过程
-    async def _run_reflection(self, user_query: str, draft_answer: str) -> tuple[bool, str]:
+    async def _run_reflection(self, user_query: str, draft_answer: str, retrieved_memories: str = "") -> tuple[bool, str]:
         """自我反思机制：使用 JSON Mode 确保返回格式"""
-        prompt = f"【用户原始问题】: {user_query}\n\n【Agent草稿回答】: {draft_answer}"
+        # 组装带有 RAG 记忆的审核背景
+        memory_context = f"【系统附加的长期记忆】:\n{retrieved_memories}\n\n" if retrieved_memories else ""
+
+        prompt = f"{memory_context}【用户原始问题】: {user_query}\n\n【Agent草稿回答】: {draft_answer}"
         try:
             resp = await client.chat.completions.create(
                 model=Config.MODEL, # 此处工业界常替换为稍便宜但逻辑好的模型以省钱
@@ -151,7 +143,7 @@ class ReActAgent:
             logger.error(f"反思模块异常: {e}")
             return True, "反思模块异常，默认放行"
     
-    @observe() # 新增 - 自动追踪整个 run 函数的执行链路
+    @observe() # 自动追踪整个 run 函数的执行链路
     async def run(self, user_query: str, max_turns: int = 10): # 增加轮数以支持反思循环
         """流式生成器：通过 yield 逐步返回生成的文字和状态"""
 
@@ -165,7 +157,7 @@ class ReActAgent:
             # 更新对话标题
             self.session_title = new_title
 
-        # --- 核心改造，RAG 上下文纯净注入 ---
+        # --- 把原始输入存入 SQLite (总账本，保证信息完整性) ---
         db.save_message(self.session_id, "user", content=user_query, tokens=0)
 
         yield "\n\033[36m[🧠 记忆神经] 正在潜意识中检索相关记忆...\033[0m"
@@ -178,7 +170,7 @@ class ReActAgent:
         # 组装最终喂给大模型的 User Prompt（隐式上下文注入）
         if retrieved_memories:
             yield f"\n\033[36m[💡 记忆唤醒] 找到相关过往背景！\033[0m"
-            request_messages.insert(-1, {
+            request_messages.append({
                 "role": "system",
                 "content": f"【系统附加长期记忆(供参考)】:\n{retrieved_memories}"
             })
@@ -192,6 +184,9 @@ class ReActAgent:
         
         # 直接调用从 router.py 引入的函数
         active_skills = await route_intent(user_query)
+
+        # 看 Router 放行了什么技能
+        print(f"\n[Debug] Router 判决激活的技能包: {active_skills}")
         
         # 拼接基础技能
         skills_to_load = ["base"] + active_skills
@@ -204,7 +199,7 @@ class ReActAgent:
                 current_tools_schema.extend(SKILL_REGISTRY[skill]["schemas"])
 
         for turn in range(max_turns):
-            logger.info(f"[系统] 开始第 {turn + 1} 轮思考...")
+            logger.info(f"\n[系统] 开始第 {turn + 1} 轮思考...")
             try:
                 # 开启 stream 模式，并请求携带 usage 信息
                 response = await client.chat.completions.create(
@@ -267,7 +262,7 @@ class ReActAgent:
             # 流读取完毕，整理本轮回合数据
             tool_calls_list = list(tool_calls_dict.values()) if tool_calls_dict else None
 
-            # 同步内存与请求列表
+            # 1. 保存助手回复到内存和数据库
             self._save_and_append(
                 "assistant", 
                 content=content_buffer if content_buffer else None, 
@@ -275,19 +270,20 @@ class ReActAgent:
             )
             request_messages.append(self.messages[-1])
 
-            # 异常情况：模型既没思考也没调用工具
-            if not tool_calls_list and not content_buffer:
-                yield "\n[系统] 模型返回为空，结束思考。"
-                break
+            # 2. 如果没有工具调用，且有文本，说明回答完毕
+            if not tool_calls_list and content_buffer:
+                # 只有文本，不需要 tool 回复，直接走柔性兜底逻辑
+                pass 
             
             # 多工具并行执行
             if tool_calls_list:
                 # 任务分类，将“常规工具”和“交卷工具”分开
                 normal_tool_calls = []
-                submit_call = None
+                # 把单一变量改成列表，防止相互覆盖
+                submit_calls = []
                 for tc in tool_calls_list:
                     if tc["function"]["name"] == "submit_final_answer":
-                        submit_call = tc
+                        submit_calls.append(tc)
                     else:
                         normal_tool_calls.append(tc)
 
@@ -340,39 +336,70 @@ class ReActAgent:
                         request_messages.append(self.messages[-1])
                     
                     # 如果这轮没有交卷，则继续下一轮思考
-                    if not submit_call:
+                    if not submit_calls:
                         continue
 
                 # 独立处理交卷工具 (Reflection 拦截)
-                if submit_call:
-                    func_name = submit_call["function"]["name"]
-                    raw_args = submit_call["function"]["arguments"]
-                    func_args = self._safe_json_parse(raw_args)
-                    tool_call_id = submit_call["id"]
+                if submit_calls:
+                    for submit_call in submit_calls:
+                        func_name = submit_call["function"]["name"]
+                        raw_args = submit_call["function"]["arguments"]
+                        func_args = self._safe_json_parse(raw_args)
+                        tool_call_id = submit_call["id"]
+                        
+                        draft_answer = func_args.get("answer", "未提取到答案。") if func_args else "解析失败"
+                        yield f"\n\n[🕵️ 系统审核拦截 (Self-Reflection)...]\n"
+                            
+                        # 触发大模型审视草稿
+                        is_pass, feedback = await self._run_reflection(user_query, draft_answer, retrieved_memories)
+                            
+                        if is_pass:
+                            yield f"✅ 审核通过！\n\n🎯 最终回答:\n{draft_answer}"
+                            # 打字机特效输出最终答案
+                            # for char in draft_answer:
+                            #     yield char
+                            #     await asyncio.sleep(0.01)
+
+                            self._save_and_append("tool", content="审核通过。任务结束。", tool_call_id=tool_call_id)
+                            # --- 同步更新 request_messages ---
+                            request_messages.append(self.messages[-1]) 
+                            await self.sync_memories(force=False) # 正常检查是否超 Token
+                            return # 真正结束并退出
+                        else:
+                            yield f"❌ 审核被驳回：{feedback}\n[🔄 触发自愈...]\n"
+                            obs = f"回答被系统 Reviewer 驳回！必须修正，驳回理由：\n{feedback}"
+                            self._save_and_append("tool", content=obs, tool_call_id=tool_call_id)
+                            # --- 必须把这条驳回记录加入到临时账本里，API 才能正常往下走 ---
+                            request_messages.append(self.messages[-1])
                     
-                    draft_answer = func_args.get("answer", "未提取到答案。") if func_args else "解析失败"
-                    yield f"\n\n[🕵️ 系统审核拦截 (Self-Reflection)...]\n"
-                        
-                    # 触发大模型审视草稿
-                    is_pass, feedback = await self._run_reflection(user_query, draft_answer)
-                        
-                    if is_pass:
-                        yield f"✅ 审核通过！\n\n🎯 最终回答:\n{draft_answer}"
-                        self._save_and_append("tool", content="审核通过。任务结束。", tool_call_id=tool_call_id)
-                        await self.sync_memories(force=False) # 正常检查是否超 Token
-                        return # 真正结束并退出
-                    else:
-                        yield f"❌ 审核被驳回：{feedback}\n[🔄 触发自愈...]\n"
-                        obs = f"回答被系统 Reviewer 驳回！必须修正，驳回理由：\n{feedback}"
-                        self._save_and_append("tool", content=obs, tool_call_id=tool_call_id)
-                        continue # 直接进入下一轮重试
+                    # 只有当所有的 submit_call 都被驳回时，才会走到这里，继续进入下一轮循环重试
+                    continue 
             
             else:
-                # 防御机制：如果模型忘记调用 submit_final_answer 直接输出了文本
-                yield f"\n[⚠️ 警告：检测到违规输出。已强制要求模型使用标准工具提交答案。]"
-                self._save_and_append("user", content="系统提示：绝不要直接在文本中回答用户！请将你的结论通过调用 `submit_final_answer` 工具进行提交。")
-                request_messages.append(self.messages[-1])
-                continue
+                # --- 柔性兜底 (刺头模型非要直接说话) ---
+                if not content_buffer.strip():
+                    continue # 连字都没打，直接跳过
+                    
+                yield f"\n\n[🕵️ 强制系统审核拦截 (Fallback Reflection)...]\n"
+                draft_answer = content_buffer
+                
+                is_pass, feedback = await self._run_reflection(user_query, draft_answer, retrieved_memories)
+                    
+                if is_pass:
+                    yield f"✅ 审核通过！(触发柔性兜底)\n\n🎯 最终回答:\n{draft_answer}"
+                    # 打字机特效输出
+                    # for char in draft_answer:
+                    #     yield char
+                    #     await asyncio.sleep(0.01)
+                        
+                    await self.sync_memories(force=False)
+                    return 
+                else:
+                    yield f"❌ 审核被驳回：{feedback}\n[🔄 触发自愈...]\n"
+                    obs = f"你刚才直接输出的回答被审核员驳回！\n驳回理由：{feedback}\n请修正后重新作答。你可以直接回答，也可以使用工具。"
+                    self._save_and_append("system", content=obs)
+                    request_messages.append(self.messages[-1])
+                    continue
 
 
         yield "\n\n[系统] 思考达到最大上限，未能完全解决问题。"
