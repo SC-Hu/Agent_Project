@@ -5,6 +5,7 @@ from config import Config
 from utils import count_tokens
 from tools import TOOLKIT_REGISTRY
 from memory_manager import long_term_memory
+from mcp_manager import mcp_manager
 
 
 def print_help():
@@ -49,7 +50,26 @@ async def main():
     # 初始默认开启一个新会话
     current_session_id = db.create_session(title="新会话")
     agent = ReActAgent(current_session_id)
-    # 【新增】同步工具索引：让 Agent 知道一共会哪些技能
+
+    # 1. 首先加载 Native 手写工具
+    long_term_memory.index_all_tools(TOOLKIT_REGISTRY)
+
+    # 2. 核心修改，异步加载 MCP Servers
+    # 加载文件系统 Server (强制锁定在 Config.WORKSPACE_ROOT)
+    await mcp_manager.connect_to_server(
+        "office", 
+        "npx", 
+        ["-y", "@modelcontextprotocol/server-filesystem", Config.WORKSPACE_ROOT]
+    )
+
+    # 加载 Git Server (会自动寻找 workspace 内的 .git)
+    await mcp_manager.connect_to_server(
+        "system", 
+        "npx", 
+        ["-y", "@modelcontextprotocol/server-git"]
+    )
+
+    # 3. 再次运行索引，把 MCP 的新工具也加入 RAG (可选，增强检索效率)
     long_term_memory.index_all_tools(TOOLKIT_REGISTRY)
 
     print("🌟 智能体已启动。输入 / 查看功能。")
@@ -128,6 +148,10 @@ async def main():
             print(f"❌ 运行出错: {e}")
             import traceback
             traceback.print_exc()
+
+        finally:
+            # 退出前关闭所有 Node 进程
+            await mcp_manager.close_all()
 
 if __name__ == "__main__":
     # --- 启动 Asyncio 事件循环 ---
