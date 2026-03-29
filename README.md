@@ -44,6 +44,7 @@ cd MCP
 
 # 确保 Node.js 环境可用（用于驱动 MCP Server）
 node -v
+npx --version
 ```
 
 ### 2. 环境配置
@@ -63,6 +64,7 @@ EBD_MODEL_NAME=BAAI/bge-large-zh-v1.5
 
 # --- 搜索工具配置 ---
 TAVILY_API_KEY=tvly-your-key
+GITHUB_PERSONAL_ACCESS_TOKEN=ghp_your-github-token
 ```
 
 ### 3. 运行程序
@@ -94,6 +96,18 @@ python main.py
 **操作提示**：
 - 输入 `y`：批准执行。
 - 输入 `n`：拒绝执行并让 Agent 寻找替代方案。
+
+---
+
+## 文件结构
+
+workspace/：Agent 的合法活动范围，所有生成的文件均在此处。
+memory_db/：ChromaDB 向量索引存储区。
+agent_memory.db：SQLite 结构化历史记录。
+engine.py：ReAct 核心调度引擎。
+mcp_manager.py：外部插件进程桥接器。
+router.py：意图识别与分流层。
+mcp_config.json：mcp配置文件。 
 
 ---
 
