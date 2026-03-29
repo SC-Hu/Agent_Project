@@ -7,29 +7,29 @@ MyAgent 是一个基于 **ReAct** 模式深度进化的 AI Agent 。它不仅具
 
 ---
 
-## 🌟 核心特性
+## 核心特性
 
-- **🧠 认知增强 (Cognitive Engine)**：
+- **认知增强 (Cognitive Engine)**：
   - **CoT 思维链展示**：透明化展示模型的内部思考流（Thought）。
   - **Actor-Critic 反思架构**：内置 Self-Reflection 机制，答案在交付前需经过逻辑审核员的严格校对。
   - **自愈纠错 (Self-Correction)**：能自动解析工具执行的 Traceback，并在下一轮思考中自主修正参数。
 
-- **💾 深度长期记忆 (Deep Memory)**：
+- **深度长期记忆 (Deep Memory)**：
   - **双脑存储架构**：使用 **SQLite** 记录短期流水账（工作记忆），使用 **ChromaDB** 沉淀语义特征（潜意识）。
   - **RAG 潜意识唤醒**：基于向量相似度，在对话中隐式注入过往画像，实现个性化服务且绝不污染上下文。
 
-- **🛠️ 动态技能治理 (Tool Governance)**：
+- **动态技能治理 (Tool Governance)**：
   - **三级过滤体系**：Intent Router (选赛道) -> Tool RAG (选重点) -> Toolkit Loading (整箱加载)。
   - **全限定名空间**：支持 `native__` 和 `mcp__` 前缀，解决大规模工具集的命名冲突与智力稀释。
 
-- **💻 闭环执行与安全 (Physical Execution)**：
+- **闭环执行与安全 (Physical Execution)**：
   - **物理沙盒**：强制锁定工作区目录 `workspace/`，严禁路径穿越。
   - **人工审批 (HITL)**：针对高危终端指令或代码修改，亮起红灯等待用户授权（y/n）。
   - **MCP 生态**：原生支持接入标准 MCP Server，一键获得 Git 操作、文件索引等能力。
 
 ---
 
-## 🚀 快速启动
+## 启动
 
 ### 1. 环境依赖
 
@@ -73,7 +73,7 @@ python main.py
 
 ---
 
-## 🎮 操作指令
+## 操作指令
 
 在 Agent 交互界面中，你可以使用以下特殊斜杠指令：
 
@@ -84,7 +84,7 @@ python main.py
 
 ---
 
-## 🛡️ 安全审计 (HITL)
+## 安全审计 (HITL)
 
 当 Agent 试图执行以下高危操作时，系统会暂停输出并显示参数详情：
 - **execute_bash**：执行终端命令（如安装包、运行脚本）。
@@ -97,7 +97,7 @@ python main.py
 
 ---
 
-## 🏗️ 系统架构图
+## 系统架构图
 
 ```text
 用户输入 ──▶ [RAG 检索] ──▶ [Intent Router] ──▶ [Tool RAG 筛选]
@@ -112,5 +112,5 @@ python main.py
 
 ---
 
-## 📝 许可证
+## 许可证
 MyAgent 基于 MIT 许可证开源。请在合法合规的前提下使用本地执行权限。
