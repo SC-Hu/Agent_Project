@@ -1,7 +1,7 @@
 
 # MyAgent: 个人智能体搭建
 
-MyAgent 是一个基于 **ReAct** 模式深度进化的 AI Agent 。它不仅具备流式推理能力，还拥有跨越会话的长期记忆、动态技能路由网关，以及基于 **MCP ** 协议的物理世界执行权限。
+MyAgent 是一个基于 **ReAct** 模式深度进化的 AI Agent 。它不仅具备流式推理能力，还拥有跨越会话的长期记忆、动态技能路由网关，以及基于 **MCP** 协议的物理世界执行权限。
 
 > **当前版本**：v0.6 (Phase 6: 闭环执行与生态接入阶段)
 
@@ -101,13 +101,13 @@ python main.py
 
 ## 文件结构
 
-workspace/：Agent 的合法活动范围，所有生成的文件均在此处。
-memory_db/：ChromaDB 向量索引存储区。
-agent_memory.db：SQLite 结构化历史记录。
-engine.py：ReAct 核心调度引擎。
-mcp_manager.py：外部插件进程桥接器。
-router.py：意图识别与分流层。
-mcp_config.json：mcp配置文件。 
+- workspace/：Agent 的合法活动范围，所有生成的文件均在此处。
+- memory_db/：ChromaDB 向量索引存储区。
+- agent_memory.db：SQLite 结构化历史记录。
+- engine.py：ReAct 核心调度引擎。
+- mcp_manager.py：外部插件进程桥接器。
+- router.py：意图识别与分流层。
+- mcp_config.json：mcp配置文件。 
 
 ---
 
