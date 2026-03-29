@@ -63,7 +63,7 @@ def register_tool(toolkit: str, source="native", requires_approval=False):
     def decorator(func):
         tool_name = func.__name__
         # 生成全限定名 ID
-        tool_id = f"{source}_{toolkit}_{tool_name}"
+        tool_id = f"{source}__{toolkit}__{tool_name}"
 
         # Pydantic Schema 生成逻辑
         sig = inspect.signature(func)

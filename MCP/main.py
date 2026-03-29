@@ -54,20 +54,10 @@ async def main():
     # 1. 首先加载 Native 手写工具
     long_term_memory.index_all_tools(TOOLKIT_REGISTRY)
 
-    # 2. 核心修改，异步加载 MCP Servers
-    # 加载文件系统 Server (强制锁定在 Config.WORKSPACE_ROOT)
-    await mcp_manager.connect_to_server(
-        "office", 
-        "npx", 
-        ["-y", "@modelcontextprotocol/server-filesystem", Config.WORKSPACE_ROOT]
-    )
-
-    # 加载 Git Server (会自动寻找 workspace 内的 .git)
-    await mcp_manager.connect_to_server(
-        "system", 
-        "npx", 
-        ["-y", "@modelcontextprotocol/server-git"]
-    )
+    # 2. 核心修改，从配置文件扫描并连接所有外部 MCP Servers
+    # 指明配置文件路径
+    config_file = "mcp_config.json"
+    await mcp_manager.load_config(config_file)
 
     # 3. 再次运行索引，把 MCP 的新工具也加入 RAG (可选，增强检索效率)
     long_term_memory.index_all_tools(TOOLKIT_REGISTRY)
@@ -76,82 +66,83 @@ async def main():
     print("--- 提示：输入 'exit' 或 'quit' 退出程序 ---")
 
     # 开启交互循环
-    while True:
-        try:
-            # 对话框显示当前 Session ID
-            # --- 让终端的 input() 运行在独立线程，不阻塞 Async 事件循环 ---
-            user_input = await asyncio.to_thread(input, f"\n[{agent.session_title}] >>> ")
-            user_input = user_input.strip()
+    try:
+        while True:
+            try:
+                # 对话框显示当前 Session ID
+                # --- 让终端的 input() 运行在独立线程，不阻塞 Async 事件循环 ---
+                user_input = await asyncio.to_thread(input, f"\n[{agent.session_title}] >>> ")
+                user_input = user_input.strip()
 
-            if not user_input:
-                continue
-
-            # --- 指令拦截器 ---
-            if user_input.startswith("/"):
-                cmd = user_input.split()[0].lower()
-
-                if cmd in ["/help", "/"]:
-                    print_help()
+                if not user_input:
                     continue
 
-                elif cmd == "/exit":
+                # --- 指令拦截器 ---
+                if user_input.startswith("/"):
+                    cmd = user_input.split()[0].lower()
+
+                    if cmd in ["/help", "/"]:
+                        print_help()
+                        continue
+
+                    elif cmd == "/exit":
+                        print("正在整理记忆并退出...")
+                        await agent.sync_memories(force=True) # 强制沉淀长期记忆
+                        print("再见！")
+                        break
+
+                    elif cmd == "/info":
+                        # 从内存和数据库计算当前状态
+                        tokens = count_tokens(agent.messages)
+                        print(f"\n当前会话信息:")
+                        print(f"- Session ID: {agent.session_id}")
+                        print(f"- 内存中消息数: {len(agent.messages)}")
+                        print(f"- 当前上下文 Token: {tokens} / {Config.TOKEN_SOFT_LIMIT}")
+                        continue
+
+                    elif cmd == "/new":
+                        current_session_id = db.create_session(title="新会话")
+                        agent = ReActAgent(current_session_id)
+                        print(f"已开启新会话: {current_session_id}")
+                        continue
+
+                    elif cmd == "/resume":
+                        selected_id = handle_resume()
+                        if selected_id:
+                            agent = ReActAgent(selected_id)
+                            agent.show_chat_history() # 新增，给用户展示前情提要
+                            print(f"已切换至会话: {agent.session_title}")
+                        continue
+
+                    else:
+                        print(f"未知指令: {cmd}。输入 / 查看帮助。")
+                        continue
+
+                # --- 处理普通对话 (保留原有 exit 逻辑) ---
+                if user_input.lower() in ['exit', 'quit']:
                     print("正在整理记忆并退出...")
                     await agent.sync_memories(force=True) # 强制沉淀长期记忆
-                    print("再见！")
+                    print("👋 再见！")
                     break
 
-                elif cmd == "/info":
-                    # 从内存和数据库计算当前状态
-                    tokens = count_tokens(agent.messages)
-                    print(f"\n当前会话信息:")
-                    print(f"- Session ID: {agent.session_id}")
-                    print(f"- 内存中消息数: {len(agent.messages)}")
-                    print(f"- 当前上下文 Token: {tokens} / {Config.TOKEN_SOFT_LIMIT}")
-                    continue
+                # --- 核心驱动，流式输出 ---
+                print("\n🤖 Assistant: ", end="")
+                
+                # 使用 for 循环逐个接收产出的字符/状态提示
+                async for chunk in agent.run(user_input):
+                    if chunk:
+                        # flush=True 保证内容立刻被推送到终端显示
+                        print(chunk, end="", flush=True)
+                print() # 本轮回答完全结束后，换行
+                
+            except Exception as e:
+                print(f"❌ 运行出错: {e}")
+                import traceback
+                traceback.print_exc()
 
-                elif cmd == "/new":
-                    current_session_id = db.create_session(title="新会话")
-                    agent = ReActAgent(current_session_id)
-                    print(f"已开启新会话: {current_session_id}")
-                    continue
-
-                elif cmd == "/resume":
-                    selected_id = handle_resume()
-                    if selected_id:
-                        agent = ReActAgent(selected_id)
-                        agent.show_chat_history() # 新增，给用户展示前情提要
-                        print(f"已切换至会话: {agent.session_title}")
-                    continue
-
-                else:
-                    print(f"未知指令: {cmd}。输入 / 查看帮助。")
-                    continue
-
-            # --- 处理普通对话 (保留原有 exit 逻辑) ---
-            if user_input.lower() in ['exit', 'quit']:
-                print("正在整理记忆并退出...")
-                await agent.sync_memories(force=True) # 强制沉淀长期记忆
-                print("👋 再见！")
-                break
-
-            # --- 核心驱动，流式输出 ---
-            print("\n🤖 Assistant: ", end="")
-            
-            # 使用 for 循环逐个接收产出的字符/状态提示
-            async for chunk in agent.run(user_input):
-                if chunk:
-                    # flush=True 保证内容立刻被推送到终端显示
-                    print(chunk, end="", flush=True)
-            print() # 本轮回答完全结束后，换行
-            
-        except Exception as e:
-            print(f"❌ 运行出错: {e}")
-            import traceback
-            traceback.print_exc()
-
-        finally:
-            # 退出前关闭所有 Node 进程
-            await mcp_manager.close_all()
+    finally:
+        # 退出前关闭所有 Node 进程
+        await mcp_manager.close_all()
 
 if __name__ == "__main__":
     # --- 启动 Asyncio 事件循环 ---

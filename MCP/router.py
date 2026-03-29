@@ -18,7 +18,7 @@ async def route_intent(user_query: str) -> list:
     {menu}
     
     【决策准则】：
-    1. 如果用户要求写代码、读写文件、操作 Word/Txt，请选择 "office"。
+    1. 如果用户要求写代码、读写文件、操作 Word/Txt，或者涉及 GitHub 仓库操作（如查看 Issue, 搜索仓库, 提交代码到云端），请选择 "office"。
     2. 如果涉及游戏业务逻辑、Unity 报错、数值计算，请选择 "gamedev"。
     3. 如果涉及运行脚本、安装软件、执行终端 Bash 指令，请选择 "system"。
     4. 如果只是普通问答或搜索，返回空列表 []。
